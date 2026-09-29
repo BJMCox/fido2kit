@@ -1,0 +1,24 @@
+version = 2
+salt = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
+
+[[keys]]
+label = "primary"
+cred_id = "AQEBAQEBAQEBAQEBAQEBAQ=="
+nonce = "d9CKm7Azg/jfS9yBBkImG/1YLNFOSRnn"
+wrapped_key = "khyQX/pyy1Xbx2u4E84ycG3X0fTJjryA37WT8d69HmhXTvaSD6WGqpK+Y2BXxB4g"
+
+[[keys]]
+label = "backup"
+cred_id = "AgICAgICAgICAgICAgICAg=="
+nonce = "L8/iQWGScrg9hyg/yRyTIWEFEpbomC9f"
+wrapped_key = "WN51l4jXdEKJd6PjHZBopZJHwl3q9kC5Py4nW+RgHcxfG0wePYsThDqx1DhP5oMJ"
+
+[[secrets]]
+database = "*"
+nonce = "rp/aQIoyoxoVkOkn1zkbqsGl3b2zKzby"
+ciphertext = "z9nUTpodUHwbFJq6Wd+iOAq5zAJL/u4EoVyd"
+
+[[secrets]]
+database = "work.kdbx"
+nonce = "edEIE+YpRhd8NEphjeEnPhdk1CrUTMif"
+ciphertext = "et9dUCLdG2jmfVdpykd4ONtCfOJH/jVT/tTyoA=="

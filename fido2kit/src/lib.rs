@@ -2,5 +2,7 @@
 
 mod app;
 pub mod fido;
+#[cfg(feature = "vault")]
+pub mod vault;
 
 pub use app::App;

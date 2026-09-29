@@ -10,7 +10,7 @@ publish = false
 
 [features]
 default = ["vault"]
-vault = []
+vault = ["dep:base64", "dep:chacha20poly1305", "dep:serde", "dep:tempfile", "dep:toml"]
 
 [dependencies]
 anyhow = "1"
@@ -18,3 +18,8 @@ ctap-hid-fido2 = "3.6"
 getrandom = "0.4"
 unicode-normalization = "0.1"
 zeroize = "1"
+base64 = { version = "0.23", optional = true }
+chacha20poly1305 = { version = "0.11", features = ["zeroize"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+tempfile = { version = "3", optional = true }
+toml = { version = "1", optional = true }
