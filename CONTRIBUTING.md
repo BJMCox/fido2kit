@@ -28,18 +28,21 @@ ln -s ~/.codeql/bundle/codeql/codeql ~/.local/bin/codeql
 Then, from the repository root:
 
 ```sh
-out=~/Library/Caches/fido2kit/codeql
-mkdir -p "$out"
-for language in rust actions; do
-  codeql database create --overwrite --build-mode=none --language=$language \
-    --codescanning-config=.github/codeql/codeql-config.yml --source-root=. "$out/$language"
-  codeql database analyze --format=csv --output="$out/$language.csv" "$out/$language" \
-    codeql/$language-queries:codeql-suites/$language-security-extended.qls
-done
-cat "$out"/*.csv
+(
+  set -e
+  out=~/Library/Caches/fido2kit/codeql
+  mkdir -p "$out"
+  for language in rust actions; do
+    codeql database create --overwrite --build-mode=none --language=$language \
+      --codescanning-config=.github/codeql/codeql-config.yml --source-root=. "$out/$language"
+    codeql database analyze --format=csv --output="$out/$language.csv" "$out/$language" \
+      codeql/$language-queries:codeql-suites/$language-security-extended.qls
+  done
+  cat "$out"/*.csv
+)
 ```
 
-Empty CSV files mean no findings. The databases stay outside the source tree, so extraction never reads them. Tests live in `tests.rs` files, which the config excludes because CodeQL does not recognize `#[cfg(test)]`.
+The subshell stops at the first failed step, so no step runs on a stale database. Empty CSV files mean no findings. The databases stay outside the source tree, so extraction never reads them. Tests live in `tests.rs` files, which the config excludes because CodeQL does not recognize `#[cfg(test)]`.
 
 ## Advisories
 
