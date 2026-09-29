@@ -1,0 +1,17 @@
+[package]
+name = "fido2kit-mac"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "macOS PIN panels shared by fido2kpxc, fido2lock, and fido2tomb"
+publish = false
+
+# No dependency on fido2kit: feature unification would otherwise hand its vault feature to apps
+# that turn it off.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "objc2-core-foundation", "NSApplication", "NSButton", "NSCell", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageView", "NSLayoutConstraint", "NSPanel", "NSPopUpButton", "NSResponder", "NSSecureTextField", "NSTextField", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSObject", "NSString"] }
+zeroize = "1"
