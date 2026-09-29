@@ -20,7 +20,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::App;
 
 /// Shown when a key refuses the silent credential lookup that long credential lists need.
-const NO_SILENT_CHECK: &str = "This key requires its PIN even to look up credentials, and too many keys are enrolled to check them in one request. Remove enrolled keys you no longer use, or turn off the key's always-require-PIN setting.";
+const NO_SILENT_CHECK: &str = "This key requires its PIN even to look up credentials, and the enrolled credentials cannot all be checked in one request. Remove enrolled keys you no longer use, or turn off the key's always-require-PIN setting.";
 
 /// One security key's hmac-secret output for its enrolled credential.
 #[derive(Clone)]

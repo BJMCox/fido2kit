@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "23 5 * * 1"
 
 permissions: {}
 
@@ -27,7 +29,9 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Lint without the vault
-        run: cargo clippy -p fido2kit --no-default-features --locked -- -D warnings
+        run: cargo clippy -p fido2kit --no-default-features --all-targets --locked -- -D warnings
+      - name: Test without the vault
+        run: cargo test -p fido2kit --no-default-features --locked
       - name: Test
         run: cargo test --workspace --locked
 
