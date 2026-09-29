@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: Format, lint, and test (macOS)
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: read # check out the code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Lint without the vault
+        run: cargo clippy -p fido2kit --no-default-features --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+
+  linux:
+    name: Lint and test the portable crate (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # check out the code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install hidapi's build dependency
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Lint
+        run: cargo clippy -p fido2kit --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test -p fido2kit --locked
+
+  audit:
+    name: Check dependencies for advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # check out the code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit
+        run: cargo audit

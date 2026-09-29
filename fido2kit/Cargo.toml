@@ -1,0 +1,15 @@
+[package]
+name = "fido2kit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "FIDO2 security-key code and the vault slot store shared by fido2kpxc, fido2lock, and fido2tomb"
+publish = false
+
+[features]
+default = ["vault"]
+vault = []
+
+[dependencies]
