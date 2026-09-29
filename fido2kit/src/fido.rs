@@ -405,8 +405,8 @@ fn assert_hmac(
 /// Makes a non-resident credential for `app` and returns its ID. Needs a touch, and the PIN when
 /// the key has one. A blank `pin` asks without one.
 pub fn make_credential(app: App, key: &Key, pin: &str) -> Result<Vec<u8>, FidoError> {
-    let pin = nfc(pin);
-    let device = if pin.is_empty() {
+    let normalized = nfc(pin);
+    let device = if normalized.is_empty() {
         open_plain(key)?
     } else {
         open_for_pin(key)?.0
@@ -415,7 +415,7 @@ pub fn make_credential(app: App, key: &Key, pin: &str) -> Result<Vec<u8>, FidoEr
     let user_id = random::<16>()?;
     let user =
         PublicKeyCredentialUserEntity::new(Some(&user_id), Some(app.name()), Some(app.name()));
-    let pin = (!pin.is_empty()).then_some(pin.as_str());
+    let pin = (!normalized.is_empty()).then_some(normalized.as_str());
     let args = make_args(app, &challenge, pin, &[], Some(&user), false);
     let attestation = device
         .make_credential_with_args(&args)

@@ -96,10 +96,15 @@ fn nfc_never_reallocates() {
         "e\u{301}e\u{301}e\u{301}",
         "\u{1100}\u{1161}\u{11a8}",
         " x ",
+        "\u{1D160}",
     ] {
         let expected = String::with_capacity(3 * pin.len()).capacity();
         assert_eq!(nfc(pin).capacity(), expected, "{pin:?}");
     }
+    // The UAX #15 worst case: 4 UTF-8 bytes grow to 12, the whole capacity.
+    let worst = nfc("\u{1D160}");
+    assert_eq!(*worst, "\u{1D158}\u{1D165}\u{1D16E}");
+    assert_eq!(worst.len(), 12);
 }
 
 #[test]
@@ -130,6 +135,13 @@ fn argument_builders_carry_the_app_and_the_mode() {
     assert_eq!(plain.pin, None);
     assert_eq!(plain.uv, None);
     assert!(plain.extensions.is_none());
+    let user =
+        PublicKeyCredentialUserEntity::new(Some(&[7u8; 16]), Some(app.name()), Some(app.name()));
+    let named = make_args(app, &[0; 32], None, &[], Some(&user), false);
+    assert_eq!(
+        named.user_entity.map(|u| u.name).as_deref(),
+        Some(app.name())
+    );
 
     let hmac = assert_args(app, &[0; 32], &[&[2u8; 16][..]], Some(("1234", &[9; 32])));
     assert_eq!(hmac.rpid, "fido2tomb");
