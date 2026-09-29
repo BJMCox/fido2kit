@@ -26,8 +26,8 @@ pub struct Check {
     pub failed: Vec<String>,
 }
 
-/// Builds only through [`Vault::create`] and [`Vault::parse`], so every vault passes
-/// [`Vault::validate`].
+/// Builds only through [`Vault::create`] and the private parser, so every vault passes
+/// validation.
 #[derive(Serialize)]
 pub struct Vault {
     version: u32,
@@ -379,10 +379,11 @@ impl Vault {
         let lock =
             std::fs::File::open(dir).with_context(|| format!("Cannot open {}", dir.display()))?;
         // Some network file systems cannot lock (macOS's ENOTSUP 45, EOPNOTSUPP 102). The text
-        // comparison below still refuses a stale write there.
+        // comparison below still refuses a stale write there. The raw numbers are macOS values,
+        // so they match only there.
         if let Err(e) = lock.lock()
             && e.kind() != std::io::ErrorKind::Unsupported
-            && !matches!(e.raw_os_error(), Some(45 | 102))
+            && !(cfg!(target_os = "macos") && matches!(e.raw_os_error(), Some(45 | 102)))
         {
             return Err(e).with_context(|| format!("Cannot lock {}", dir.display()));
         }

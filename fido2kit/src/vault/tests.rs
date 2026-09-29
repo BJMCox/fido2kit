@@ -19,8 +19,8 @@ fn two_key_vault(secret: &[u8]) -> Vault {
     vault
 }
 
-fn open(vault: &Vault, key: &Unlock, database: &str) -> Vec<u8> {
-    vault.open(key, Some(database)).unwrap().to_vec()
+fn open(vault: &Vault, key: &Unlock, name: &str) -> Vec<u8> {
+    vault.open(key, Some(name)).unwrap().to_vec()
 }
 
 #[test]
@@ -440,6 +440,8 @@ fn a_fido2kpxc_0_2_2_vault_still_opens_after_a_save() {
     let path = dir.path().join("vault.toml");
     std::fs::write(&path, FIXTURE).unwrap();
     Vault::load(APP, &path).unwrap().save(&path, false).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), FIXTURE);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     let saved = Vault::load(APP, &path).unwrap();
     for key in fixture_keys() {
         assert_eq!(open(&saved, &key, "home.kdbx"), b"fixture-any");
@@ -451,8 +453,13 @@ fn a_fido2kpxc_0_2_2_vault_still_opens_after_a_save() {
 fn another_app_cannot_open_a_fido2kpxc_vault() {
     let vault = Vault::parse(App::new("fido2tomb"), FIXTURE).unwrap();
     for key in fixture_keys() {
-        assert!(vault.open(&key, None).is_err());
-        assert!(vault.open(&key, Some("work.kdbx")).is_err());
+        for name in [None, Some("work.kdbx")] {
+            let error = vault.open(&key, name).err().unwrap();
+            assert!(
+                format!("{error:#}").contains("failed authentication"),
+                "{error:#}"
+            );
+        }
     }
 }
 
@@ -460,7 +467,11 @@ fn another_app_cannot_open_a_fido2kpxc_vault() {
 fn another_app_cannot_open_a_migrated_version_1_vault() {
     let old = unlock(1, 10);
     let vault = Vault::parse(App::new("fido2tomb"), &version_1_text(&old)).unwrap();
-    assert!(vault.open(&old, None).is_err());
+    let error = vault.open(&old, None).err().unwrap();
+    assert!(
+        format!("{error:#}").contains("failed authentication"),
+        "{error:#}"
+    );
 }
 
 #[test]
