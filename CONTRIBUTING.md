@@ -53,7 +53,7 @@ The `audit` job in CI runs `cargo audit` on the kit's own `Cargo.lock` only. An 
 An app depends on the kit through `git` and `rev`, with the full commit SHA and the tag in a comment:
 
 ```toml
-fido2kit = { git = "https://github.com/<owner>/fido2kit.git", rev = "<full commit SHA>" } # v0.1.0
+fido2kit = { git = "https://github.com/BJMCox/fido2kit.git", rev = "<full commit SHA>" } # v0.1.0
 ```
 
 A kit change reaches an app only through a new kit tag and a bump of `rev` in each app.
