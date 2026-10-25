@@ -29,6 +29,16 @@ pub struct Unlock {
     pub output: Zeroizing<[u8; 32]>,
 }
 
+/// A new credential's first output, with what the key reported about itself.
+#[derive(Clone)]
+pub struct Enrollment {
+    pub unlock: Unlock,
+    /// The key model's AAGUID from the attestation.
+    pub aaguid: [u8; 16],
+    /// Whether the credential was made with the PIN.
+    pub uv: bool,
+}
+
 #[derive(Debug)]
 pub enum FidoError {
     NoDevice,
@@ -293,7 +303,7 @@ pub fn enroll(
     pin: &str,
     salt: &[u8; 32],
     exclude: &[&[u8]],
-) -> Result<Unlock, FidoError> {
+) -> Result<Enrollment, FidoError> {
     enroll_with_pin(app, key, pin, salt, exclude).map_err(no_silent_check)
 }
 
@@ -303,7 +313,7 @@ fn enroll_with_pin(
     pin: &str,
     salt: &[u8; 32],
     exclude: &[&[u8]],
-) -> Result<Unlock, FidoError> {
+) -> Result<Enrollment, FidoError> {
     let (device, limits) = open_for_pin(key)?;
     let pin = nfc(pin);
     let limited = chunks(exclude, limits.count, limits.id_length);
@@ -328,13 +338,24 @@ fn enroll_with_pin(
             "This key does not support hmac-secret"
         )));
     }
-    assert_hmac(
+    let aaguid = attestation
+        .aaguid
+        .as_slice()
+        .try_into()
+        .map_err(|_| FidoError::Other(anyhow!("The key returned a malformed AAGUID")))?;
+    let unlock = assert_hmac(
         app,
         &device,
         &pin,
         salt,
         &[&attestation.credential_descriptor.id],
-    )
+    )?;
+    // The credential was made with the PIN, which is user verification.
+    Ok(Enrollment {
+        unlock,
+        aaguid,
+        uv: true,
+    })
 }
 
 /// Returns the hmac-secret output of whichever enrolled credential the inserted key holds.
