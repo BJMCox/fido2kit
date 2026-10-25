@@ -907,7 +907,7 @@ fn load_refuses_older_vaults_and_names_the_fix() {
     for text in [version_1_text(&unlock(1, 10)), FIXTURE.to_owned()] {
         std::fs::write(&path, text).unwrap();
         let error = error_of(Vault::load(APP, &path));
-        assert!(error.contains("from an older version"), "{error}");
+        assert!(error.contains("an older copy replaced it"), "{error}");
     }
 }
 
@@ -1154,4 +1154,123 @@ fn fido2kpxc_keeps_its_aad_bytes() {
         legacy_secret_aad(App::new("fido2tomb"), ANY),
         b"fido2tomb-vault-v1"
     );
+}
+
+#[test]
+fn a_wrong_output_cannot_rewrap_a_key() {
+    // A wrong output, from an app bug or a faulty key, must fail the change, not wrap a value
+    // that the real key can never unwrap again.
+    let wrong = unlock(3, 99);
+    let mut vault = threshold_vault(2, 3);
+    let good = [unlock(1, 10), unlock(2, 20)];
+    let with_wrong = [good[0].clone(), good[1].clone(), wrong.clone()];
+    assert!(vault.set_threshold(&with_wrong, 3).is_err());
+    assert!(
+        vault
+            .add_key(&with_wrong, "fourth", &enrollment(4, 40))
+            .is_err()
+    );
+    let all = [good[0].clone(), good[1].clone(), unlock(3, 30)];
+    assert!(vault.open(&all[1..], None).is_ok());
+
+    let [first, _] = fixture_keys();
+    let mut legacy = Vault::parse(APP, FIXTURE, true).unwrap();
+    assert!(legacy.upgrade(&[first, unlock(2, 99)]).is_err());
+}
+
+#[test]
+fn threshold_share_and_credential_id_are_covered_by_the_tag() {
+    let keys: Vec<Unlock> = (1..=3).map(|id| unlock(id, id * 10)).collect();
+    let vault = threshold_vault(2, 3);
+    parse(&edited(&vault, |_| {}))
+        .unwrap()
+        .verify(&keys)
+        .unwrap();
+    let edits: Vec<(&str, Edit)> = vec![
+        (
+            "threshold",
+            Box::new(|t| {
+                t.insert("threshold".into(), 3.into());
+            }),
+        ),
+        (
+            "swapped shares",
+            Box::new(|t| {
+                let (mut first, mut second) = (entry(t, "keys", 0), entry(t, "keys", 1));
+                first.insert("share".into(), 2.into());
+                second.insert("share".into(), 1.into());
+                set_entry(t, "keys", 0, first);
+                set_entry(t, "keys", 1, second);
+            }),
+        ),
+        (
+            "credential ID",
+            Box::new(|t| {
+                let mut key = entry(t, "keys", 2);
+                key.insert("cred_id".into(), b64(&[9; 16]));
+                set_entry(t, "keys", 2, key);
+            }),
+        ),
+    ];
+    for (what, edit) in edits {
+        let rejected = parse(&edited(&vault, |t| edit(t))).and_then(|v| v.verify(&keys));
+        assert!(rejected.is_err(), "{what} was accepted");
+    }
+}
+
+#[test]
+fn a_tampered_key_entry_names_the_change() {
+    let vault = two_key_vault(b"hunter2");
+    let text = edited(&vault, |t| {
+        let mut key = entry(t, "keys", 0);
+        key.insert("wrapped".into(), b64(&[0; 48]));
+        set_entry(t, "keys", 0, key);
+    });
+    let error = error_of(parse(&text).unwrap().open(&[unlock(1, 10)], None));
+    assert!(error.contains("changed outside fido2kpxc"), "{error}");
+}
+
+#[test]
+fn a_label_swap_names_the_change_when_the_lost_key_is_gone() {
+    // The owner no longer holds "backup", so only "primary" is present.
+    let swapped = edited(&two_key_vault(b"hunter2"), |t| {
+        let (mut first, mut second) = (entry(t, "keys", 0), entry(t, "keys", 1));
+        first.insert("label".into(), "backup".into());
+        second.insert("label".into(), "primary".into());
+        set_entry(t, "keys", 0, first);
+        set_entry(t, "keys", 1, second);
+    });
+    let mut vault = parse(&swapped).unwrap();
+    let error = error_of(vault.remove_keys(&["backup"], &[unlock(1, 10)]));
+    assert!(error.contains("changed outside fido2kpxc"), "{error}");
+}
+
+/// Runs `load` on another thread, so a hang fails the test instead of stopping it.
+fn load_within_a_second(path: &Path) -> Result<Vault> {
+    let path = path.to_owned();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    // After a timeout nobody receives, and the send result does not matter.
+    std::thread::spawn(move || {
+        let _ = sender.send(Vault::load(APP, &path));
+    });
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("load returned within a second")
+}
+
+#[test]
+fn a_vault_path_that_is_not_a_regular_file_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let fifo = dir.path().join("fifo.toml");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(load_within_a_second(&fifo).is_err());
+    let zero = dir.path().join("zero.toml");
+    std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
+    assert!(load_within_a_second(&zero).is_err());
 }

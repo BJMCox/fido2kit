@@ -2,7 +2,7 @@ mod crypto;
 mod file;
 
 use std::collections::{BTreeMap, HashSet};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -180,16 +180,7 @@ impl Vault {
     }
 
     fn load_from(app: App, path: &Path, legacy: bool) -> Result<Self> {
-        let size = std::fs::metadata(path)
-            .with_context(|| format!("Cannot read vault {}", path.display()))?
-            .len();
-        ensure!(
-            size <= MAX_VAULT_BYTES,
-            "The vault {} is larger than 1 MiB",
-            path.display()
-        );
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("Cannot read vault {}", path.display()))?;
+        let text = read_vault(path)?;
         let mut vault = Self::parse(app, &text, legacy)
             .with_context(|| format!("Invalid vault {}", path.display()))?;
         vault.loaded = Some(text);
@@ -339,6 +330,8 @@ impl Vault {
     /// Enrolls `new`. With a threshold above 1 the data key is split again, so every enrolled
     /// key must be in `unlocks`.
     pub fn add_key(&mut self, unlocks: &[Unlock], label: &str, new: &Enrollment) -> Result<()> {
+        // The tag check comes first, so a changed file reports itself, not a side effect.
+        self.data_key(&refs(unlocks))?;
         ensure!(
             self.keys.iter().all(|k| k.label != label),
             "Label {label:?} already exists"
@@ -371,6 +364,8 @@ impl Vault {
     /// kept an old vault copy knows the old data key, so every kept key must be in `unlocks` to
     /// wrap the new one.
     pub fn remove_keys(&mut self, labels: &[&str], unlocks: &[Unlock]) -> Result<()> {
+        // The tag check comes first, so a swapped label reports a changed file, not a missing key.
+        self.data_key(&refs(unlocks))?;
         let kept = self.kept_keys(labels)?;
         ensure!(
             kept.len() >= usize::from(self.threshold),
@@ -387,10 +382,6 @@ impl Vault {
             })
             .collect::<Result<_>>()?;
         self.change(&kept, |vault, old_key| {
-            // Proves each output before the old wrapping is discarded.
-            for unlock in &kept {
-                vault.unwrap(vault.entry(unlock)?, unlock)?;
-            }
             let plain = vault
                 .secrets
                 .iter()
@@ -422,6 +413,7 @@ impl Vault {
     /// Sets how many keys an unwrap needs. Every enrolled key must be in `unlocks`, because each
     /// one wraps a new share.
     pub fn set_threshold(&mut self, unlocks: &[Unlock], k: u8) -> Result<()> {
+        self.data_key(&refs(unlocks))?;
         ensure!(
             k >= 1 && usize::from(k) <= self.keys.len(),
             "The threshold must be between 1 and the number of keys"
@@ -557,7 +549,7 @@ impl Vault {
         }
         if !create {
             ensure!(
-                std::fs::read_to_string(path).ok() == self.loaded,
+                read_vault(path).ok() == self.loaded,
                 "The vault changed while this ran, for example from another window or computer. Nothing was saved. Try again."
             );
         }
@@ -588,6 +580,11 @@ impl Vault {
         edit: impl FnOnce(&mut Self, Zeroizing<[u8; 32]>) -> Result<Zeroizing<[u8; 32]>>,
     ) -> Result<()> {
         let key = self.data_key(unlocks)?;
+        // A change may rewrap any entry whose unlock it was given, so each output first proves
+        // itself against its current wrapping. A wrong one would lock its key out for good.
+        for unlock in unlocks {
+            self.unwrap(self.entry(unlock)?, unlock)?;
+        }
         let mut next = self.clone();
         next.migrate(&key, unlocks)?;
         let key = edit(&mut next, key)?;
@@ -725,7 +722,15 @@ impl Vault {
                 crypto::open(&unlock.output, &entry.nonce, &entry.cred_id, &entry.wrapped)
             }
         }
-        .ok_or_else(|| anyhow!("Key entry {:?} failed authentication", entry.label))?;
+        .ok_or_else(|| match self.format {
+            Format::Legacy => anyhow!("Key entry {:?} failed authentication", entry.label),
+            // Without the data key the tag cannot be checked, so both causes stay possible.
+            Format::V3 => anyhow!(
+                "Key entry {:?} failed authentication. The vault was changed outside {} or is damaged, or this key answered differently than at enrollment. Nothing was changed.",
+                entry.label,
+                self.app.name()
+            ),
+        })?;
         let value: [u8; 32] = plain
             .as_slice()
             .try_into()
@@ -918,8 +923,11 @@ impl Vault {
             .and_then(toml::Value::as_integer)
             .context("The vault has no version")?;
         let vault = match version {
+            // A v1 or v2 file here is either a vault that was never migrated or an old copy put back
+            // over a v3 one, and migrating the copy would restore keys removed since.
             1 | 2 if !legacy => bail!(
-                "This vault is from an older version. Open it once with an app that migrates it."
+                "This vault has an older format without a tag, which {app} no longer reads. If it used the current format before, an older copy replaced it: restore your current copy, because migrating this one brings back keys removed since. Otherwise, open it once with an earlier {app} release that migrates it.",
+                app = app.name()
             ),
             1 => {
                 let v1: file::V1 = toml::from_str(text)?;
@@ -1238,6 +1246,30 @@ fn bytes<const N: usize>(value: Vec<u8>, what: &str) -> Result<[u8; N]> {
     value
         .try_into()
         .map_err(|_| anyhow!("The vault's {what} has the wrong length"))
+}
+
+/// Reads at most 1 MiB and one byte, from a regular file only, so a FIFO or a link to a device
+/// cannot hang or exhaust the app.
+fn read_vault(path: &Path) -> Result<String> {
+    let cannot = || format!("Cannot read vault {}", path.display());
+    let metadata = std::fs::metadata(path).with_context(cannot)?;
+    ensure!(
+        metadata.is_file(),
+        "The vault {} is not a regular file",
+        path.display()
+    );
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .with_context(cannot)?
+        .take(MAX_VAULT_BYTES + 1)
+        .read_to_string(&mut text)
+        .with_context(cannot)?;
+    ensure!(
+        text.len() as u64 <= MAX_VAULT_BYTES,
+        "The vault {} is larger than 1 MiB",
+        path.display()
+    );
+    Ok(text)
 }
 
 fn refs(unlocks: &[Unlock]) -> Vec<&Unlock> {
