@@ -3,7 +3,7 @@ mod file;
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Read, Write};
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -524,6 +524,8 @@ impl Vault {
     /// Replaces the vault atomically. With `create`, refuses to replace an existing file. Without
     /// it, refuses to replace a file that changed since this vault was loaded, so a slow writer
     /// cannot undo another writer's save, such as a key removal.
+    /// Filesystems without no-replace renames use exclusive creation instead. An interrupted
+    /// first write there can leave an incomplete new file, but never replaces an existing one.
     pub fn save(&mut self, path: &Path, create: bool) -> Result<()> {
         let dir = path.parent().context("The vault path has no directory")?;
         if create {
@@ -554,7 +556,7 @@ impl Vault {
             );
         }
         let text = self.to_text()?;
-        // The rename below replaces the vault in one step, so readers never see a partial file.
+        // Updates replace the vault in one rename, so readers never see a partial update.
         let prefix = format!(".{}-", self.app.name());
         let mut temp = tempfile::Builder::new()
             .prefix(&prefix)
@@ -563,7 +565,31 @@ impl Vault {
         temp.write_all(text.as_bytes())?;
         temp.as_file().sync_all()?;
         if create {
-            temp.persist_noclobber(path)?;
+            match temp.persist_noclobber(path) {
+                Ok(_) => {}
+                Err(error)
+                    if error.error.kind() == std::io::ErrorKind::Unsupported
+                        || (cfg!(target_os = "macos")
+                            && matches!(error.error.raw_os_error(), Some(45 | 102))) =>
+                {
+                    // exFAT on macOS supports neither no-replace renames nor hard links.
+                    // create_new keeps the no-overwrite guarantee without a racy existence check.
+                    let mut file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
+                        .open(path)?;
+                    file.write_all(text.as_bytes())
+                        .and_then(|()| file.sync_all())
+                        .with_context(|| {
+                            format!(
+                                "Could not finish creating {}. Remove the incomplete new file before retrying.",
+                                path.display()
+                            )
+                        })?;
+                }
+                Err(error) => return Err(error.into()),
+            }
         } else {
             temp.persist(path)?;
         }

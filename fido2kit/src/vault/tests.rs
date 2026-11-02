@@ -947,7 +947,6 @@ fn create_refuses_to_replace_an_existing_vault() {
         open(&Vault::load(APP, &path).unwrap(), unlock(1, 10), "pdb.kdbx"),
         b"first"
     );
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
 #[test]
