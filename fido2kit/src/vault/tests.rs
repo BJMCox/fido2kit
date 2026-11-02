@@ -1037,6 +1037,68 @@ fn a_vault_above_one_mib_is_refused_before_parsing() {
 }
 
 #[test]
+fn an_oversized_create_leaves_no_new_vault_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new/vault.toml");
+    let mut vault = one_key_vault(&vec![b'x'; MAX_VAULT_BYTES as usize]);
+    assert!(vault.save(&path, true).is_err());
+    assert!(!dir.path().join("new").exists());
+}
+
+#[test]
+fn oversized_aggregate_growth_keeps_the_saved_vault_usable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.toml");
+    let first = vec![b'a'; 400_000];
+    one_key_vault(&first).save(&path, true).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut vault = Vault::load(APP, &path).unwrap();
+    vault
+        .set_secret(&[unlock(1, 10)], "work.kdbx", &vec![b'b'; 400_000])
+        .unwrap();
+    assert!(vault.save(&path, false).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        open(
+            &Vault::load(APP, &path).unwrap(),
+            unlock(1, 10),
+            "home.kdbx"
+        ),
+        first
+    );
+    vault
+        .set_secret(&[unlock(1, 10)], "work.kdbx", b"small")
+        .unwrap();
+    vault.save(&path, false).unwrap();
+    assert_eq!(
+        open(
+            &Vault::load(APP, &path).unwrap(),
+            unlock(1, 10),
+            "work.kdbx"
+        ),
+        b"small"
+    );
+}
+
+#[test]
+fn a_vault_at_the_one_mib_limit_saves_and_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.toml");
+    one_key_vault(b"boundary").save(&path, true).unwrap();
+    let size = std::fs::metadata(&path).unwrap().len();
+    let label = "x".repeat("primary".len() + (MAX_VAULT_BYTES - size) as usize);
+    let mut vault =
+        Vault::create(APP, [7; 32], &label, &enrollment(1, 10), ANY, b"boundary").unwrap();
+    let path = dir.path().join("boundary.toml");
+    vault.save(&path, true).unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), MAX_VAULT_BYTES);
+    assert_eq!(
+        open(&Vault::load(APP, &path).unwrap(), unlock(1, 10), "pdb.kdbx"),
+        b"boundary"
+    );
+}
+
+#[test]
 fn a_save_after_another_writers_save_fails_and_keeps_their_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vault.toml");

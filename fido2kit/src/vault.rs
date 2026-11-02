@@ -526,7 +526,14 @@ impl Vault {
     /// cannot undo another writer's save, such as a key removal.
     /// Filesystems without no-replace renames use exclusive creation instead. An interrupted
     /// first write there can leave an incomplete new file, but never replaces an existing one.
+    /// A vault above the read size limit is refused before any file or directory changes.
     pub fn save(&mut self, path: &Path, create: bool) -> Result<()> {
+        let text = self.to_text()?;
+        ensure!(
+            text.len() as u64 <= MAX_VAULT_BYTES,
+            "The vault {} is larger than 1 MiB. Nothing was saved.",
+            path.display()
+        );
         let dir = path.parent().context("The vault path has no directory")?;
         if create {
             // Creates only the configured folder. A missing parent means a wrong `folder` setting.
@@ -555,7 +562,6 @@ impl Vault {
                 "The vault changed while this ran, for example from another window or computer. Nothing was saved. Try again."
             );
         }
-        let text = self.to_text()?;
         // Updates replace the vault in one rename, so readers never see a partial update.
         let prefix = format!(".{}-", self.app.name());
         let mut temp = tempfile::Builder::new()
